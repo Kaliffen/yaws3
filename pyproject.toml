@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "yaws3"
 version = "0.1.0"
-description = "Headless-friendly planetary renderer scaffolding"
+description = "Planetary renderer"
 authors = [{name = "YAWS3 Team"}]
 readme = "design.md"
 requires-python = ">=3.10"
