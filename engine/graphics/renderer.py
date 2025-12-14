@@ -2,7 +2,16 @@ import numpy as np
 
 from engine.graphics.frame_graph import FrameGraph
 from engine.graphics.render_context import RenderContext
-from engine.graphics.passes.raymarch_sphere_pass import RaymarchSpherePass
+from engine.graphics.passes import (
+    AtmosphericEntryCachePass,
+    AtmosphericIntegrationPass,
+    CloudLightingPass,
+    CompositeTonemapPass,
+    DeferredSurfaceLightingPass,
+    PlanetaryDepthGeometryPass,
+    RaymarchSpherePass,
+    SurfaceGBufferPass,
+)
 
 
 class Renderer:
@@ -30,6 +39,13 @@ class Renderer:
 
     def _build_passes(self):
         self.frame_graph.passes = []
+        self.frame_graph.add_pass(PlanetaryDepthGeometryPass())
+        self.frame_graph.add_pass(AtmosphericEntryCachePass())
+        self.frame_graph.add_pass(CloudLightingPass())
+        self.frame_graph.add_pass(SurfaceGBufferPass())
+        self.frame_graph.add_pass(DeferredSurfaceLightingPass())
+        self.frame_graph.add_pass(AtmosphericIntegrationPass())
+        self.frame_graph.add_pass(CompositeTonemapPass())
         self.frame_graph.add_pass(RaymarchSpherePass())
 
     def render(self, delta_time=0.0, camera=None, planet_center=None):
