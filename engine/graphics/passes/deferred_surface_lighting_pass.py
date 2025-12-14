@@ -1,5 +1,3 @@
-import numpy as np
-
 from engine.graphics.passes.base_pass import BasePass
 
 
@@ -8,34 +6,46 @@ class DeferredSurfaceLightingPass(BasePass):
         super().__init__("Deferred Surface Lighting Pass")
         self.resources = {}
 
+    def _fragment_shader(self):
+        return """#version 330 core
+layout(location = 0) out vec3 o_surface_radiance;
+
+uniform sampler2D u_gbuffer_normal_roughness;
+uniform sampler2D u_gbuffer_albedo_metalness;
+uniform vec3 u_sun_dir_rel;
+uniform vec2 u_resolution;
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution;
+    vec3 normal = texture(u_gbuffer_normal_roughness, uv).xyz * 2.0 - 1.0;
+    float roughness = texture(u_gbuffer_normal_roughness, uv).w;
+    vec3 albedo = texture(u_gbuffer_albedo_metalness, uv).rgb;
+    float ndl = max(dot(normalize(normal), normalize(u_sun_dir_rel)), 0.0);
+    vec3 diffuse = albedo * ndl;
+    o_surface_radiance = diffuse * (1.0 - roughness);
+}
+"""
+
     def initialize(self, render_context):
         super().initialize(render_context)
-        w, h = render_context.width, render_context.height
-        self.resources["surface_radiance"] = np.zeros((h, w, 3), dtype=np.float32)
-        for name, value in self.resources.items():
-            render_context.set_texture(name, value)
+        self.shader_sources = {
+            "vertex": self.fullscreen_vertex,
+            "fragment": self._fragment_shader(),
+        }
+        self.resources = {
+            "surface_radiance": {"format": "RGB16F"},
+            "shader_sources": self.shader_sources,
+        }
+        render_context.set_texture("surface_radiance", self.resources["surface_radiance"])
         return True
 
     def execute(self, delta_time=0.0, render_context=None):
         super().execute(delta_time, render_context)
-        if render_context is None:
-            return True
-        sun_dir = render_context.sun_dir_rel
-        normals = render_context.get_texture("gbuffer_normal_roughness")
-        albedo = render_context.get_texture("gbuffer_albedo_metalness")
-        surface_radiance = self.resources["surface_radiance"]
-        h, w, _ = surface_radiance.shape
-        for y in range(h):
-            for x in range(w):
-                n = normals[y, x][:3]
-                color = albedo[y, x][:3]
-                lambert = max(0.0, float(np.dot(n, sun_dir)))
-                surface_radiance[y, x] = color * lambert
-        for name, value in self.resources.items():
-            render_context.set_texture(name, value)
+        render_context.set_texture("surface_radiance", self.resources["surface_radiance"])
         return True
 
     def shutdown(self):
         super().shutdown()
         self.resources = {}
+        self.shader_sources = {}
         return True

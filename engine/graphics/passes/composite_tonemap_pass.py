@@ -1,5 +1,3 @@
-import numpy as np
-
 from engine.graphics.passes.base_pass import BasePass
 
 
@@ -8,32 +6,42 @@ class CompositeTonemapPass(BasePass):
         super().__init__("Composite & Tone Mapping Pass")
         self.resources = {}
 
+    def _fragment_shader(self):
+        return """#version 330 core
+layout(location = 0) out vec4 o_color;
+
+uniform sampler2D u_atmosphere_color;
+uniform float u_exposure;
+uniform vec2 u_resolution;
+
+vec3 tonemap(vec3 color) {
+    color *= u_exposure;
+    return color / (color + vec3(1.0));
+}
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution;
+    vec3 c = texture(u_atmosphere_color, uv).rgb;
+    vec3 mapped = tonemap(c);
+    o_color = vec4(mapped, 1.0);
+}
+"""
+
     def initialize(self, render_context):
         super().initialize(render_context)
-        w, h = render_context.width, render_context.height
-        self.resources["final_color"] = np.zeros((h, w, 3), dtype=np.float32)
-        for name, value in self.resources.items():
-            render_context.set_texture(name, value)
+        self.shader_sources = {
+            "vertex": self.fullscreen_vertex,
+            "fragment": self._fragment_shader(),
+        }
+        self.resources = {"shader_sources": self.shader_sources}
         return True
 
     def execute(self, delta_time=0.0, render_context=None):
         super().execute(delta_time, render_context)
-        if render_context is None:
-            return True
-        atmosphere = render_context.get_texture("atmosphere_radiance")
-        final_color = self.resources["final_color"]
-        exposure = 1.0
-        h, w, _ = final_color.shape
-        for y in range(h):
-            for x in range(w):
-                color = atmosphere[y, x] if atmosphere is not None else np.zeros(3, dtype=np.float32)
-                mapped = 1.0 - np.exp(-color * exposure)
-                final_color[y, x] = np.clip(mapped, 0.0, 1.0)
-        for name, value in self.resources.items():
-            render_context.set_texture(name, value)
         return True
 
     def shutdown(self):
         super().shutdown()
         self.resources = {}
+        self.shader_sources = {}
         return True

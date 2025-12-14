@@ -1,5 +1,3 @@
-import numpy as np
-
 from engine.graphics.passes.base_pass import BasePass
 
 
@@ -13,85 +11,114 @@ class PlanetaryDepthGeometryPass(BasePass):
         super().__init__("Planetary Depth & Geometry Classification Pass")
         self.resources = {}
 
+    def _fragment_shader(self):
+        return """#version 330 core
+layout(location = 0) out float o_depth_planet;
+layout(location = 1) out float o_depth_atm_entry;
+layout(location = 2) out float o_depth_atm_exit;
+layout(location = 3) out uint o_geometry_mask;
+
+uniform mat4 u_inv_view_proj;
+uniform vec2 u_resolution;
+uniform vec3 u_planet_center_rel;
+uniform float u_planet_radius;
+uniform float u_atm_inner_radius;
+uniform float u_atm_outer_radius;
+
+const uint MASK_ATMOSPHERE = 1u;
+const uint MASK_TERRAIN = 2u;
+const uint MASK_WATER = 4u;
+const uint MASK_SPACE = 8u;
+
+vec3 reconstruct_direction(vec2 frag_coord) {
+    vec2 ndc = (frag_coord / u_resolution) * 2.0 - 1.0;
+    vec4 clip = vec4(ndc, 1.0, 1.0);
+    vec4 world = u_inv_view_proj * clip;
+    vec3 dir = normalize(world.xyz / world.w);
+    return dir;
+}
+
+bool intersect_sphere(vec3 origin, vec3 dir, vec3 center, float radius, out float t_near, out float t_far) {
+    vec3 oc = origin - center;
+    float a = dot(dir, dir);
+    float b = 2.0 * dot(oc, dir);
+    float c = dot(oc, oc) - radius * radius;
+    float disc = b * b - 4.0 * a * c;
+    if (disc < 0.0) {
+        t_near = -1.0;
+        t_far = -1.0;
+        return false;
+    }
+    float sqrt_disc = sqrt(disc);
+    t_near = (-b - sqrt_disc) / (2.0 * a);
+    t_far = (-b + sqrt_disc) / (2.0 * a);
+    if (t_near > t_far) {
+        float tmp = t_near;
+        t_near = t_far;
+        t_far = tmp;
+    }
+    return true;
+}
+
+void main() {
+    vec3 origin = vec3(0.0);
+    vec3 dir = reconstruct_direction(gl_FragCoord.xy);
+    float t_near_planet; float t_far_planet;
+    float t_near_outer; float t_far_outer;
+    float t_near_inner; float t_far_inner;
+    bool hit_planet = intersect_sphere(origin, dir, u_planet_center_rel, u_planet_radius, t_near_planet, t_far_planet);
+    bool hit_outer = intersect_sphere(origin, dir, u_planet_center_rel, u_atm_outer_radius, t_near_outer, t_far_outer);
+    bool hit_inner = intersect_sphere(origin, dir, u_planet_center_rel, u_atm_inner_radius, t_near_inner, t_far_inner);
+
+    o_geometry_mask = MASK_SPACE;
+    o_depth_planet = 1e30;
+    o_depth_atm_entry = 1e30;
+    o_depth_atm_exit = 1e30;
+
+    if (hit_outer && t_far_outer > 0.0) {
+        float entry = max(t_near_outer, 0.0);
+        float exit_t = t_far_outer;
+        if (hit_inner && t_near_inner > 0.0) {
+            entry = max(entry, t_near_inner);
+            exit_t = min(exit_t, t_far_inner);
+        }
+        o_depth_atm_entry = entry;
+        o_depth_atm_exit = exit_t;
+        o_geometry_mask = MASK_ATMOSPHERE;
+    }
+
+    if (hit_planet && t_far_planet > 0.0) {
+        o_depth_planet = max(t_near_planet, 0.0);
+        o_geometry_mask |= MASK_TERRAIN;
+    }
+}
+"""
+
     def initialize(self, render_context):
         super().initialize(render_context)
-        w, h = render_context.width, render_context.height
-        self.resources["depth_planet"] = np.full((h, w), np.inf, dtype=np.float32)
-        self.resources["depth_atm_entry"] = np.full((h, w), np.inf, dtype=np.float32)
-        self.resources["depth_atm_exit"] = np.full((h, w), np.inf, dtype=np.float32)
-        self.resources["geometry_mask"] = np.zeros((h, w), dtype=np.uint32)
-        for name, value in self.resources.items():
-            render_context.set_texture(name, value)
+        self.shader_sources = {
+            "vertex": self.fullscreen_vertex,
+            "fragment": self._fragment_shader(),
+        }
+        self.resources = {
+            "depth_planet": {"format": "R32F"},
+            "depth_atm_entry": {"format": "R32F"},
+            "depth_atm_exit": {"format": "R32F"},
+            "geometry_mask": {"format": "R8UI"},
+            "shader_sources": self.shader_sources,
+        }
+        for name in ["depth_planet", "depth_atm_entry", "depth_atm_exit", "geometry_mask"]:
+            render_context.set_texture(name, self.resources[name])
         return True
-
-    def _reconstruct_direction(self, inv_view_proj, x, y, width, height):
-        ndc_x = (2.0 * ((x + 0.5) / float(width))) - 1.0
-        ndc_y = (2.0 * ((y + 0.5) / float(height))) - 1.0
-        far = np.array([ndc_x, ndc_y, 1.0, 1.0], dtype=np.float32)
-        far_world = inv_view_proj @ far
-        far_world = far_world[:3] / far_world[3]
-        length = np.linalg.norm(far_world)
-        if length == 0.0:
-            return np.array([0.0, 0.0, 1.0], dtype=np.float32)
-        return far_world / length
-
-    def _ray_sphere(self, origin, direction, center, radius):
-        oc = origin - center
-        a = float(np.dot(direction, direction))
-        b = 2.0 * float(np.dot(oc, direction))
-        c = float(np.dot(oc, oc) - radius * radius)
-        disc = b * b - 4.0 * a * c
-        if disc < 0.0:
-            return False, np.inf, np.inf
-        sqrt_disc = np.sqrt(disc)
-        t0 = (-b - sqrt_disc) / (2.0 * a)
-        t1 = (-b + sqrt_disc) / (2.0 * a)
-        t_near = min(t0, t1)
-        t_far = max(t0, t1)
-        return True, t_near, t_far
 
     def execute(self, delta_time=0.0, render_context=None):
         super().execute(delta_time, render_context)
-        if render_context is None:
-            return True
-        origin = np.array([0.0, 0.0, 0.0], dtype=np.float32)
-        center = render_context.planet_center_rel
-        planet_radius = render_context.planet_radius
-        atm_inner = render_context.atm_inner_radius
-        atm_outer = render_context.atm_outer_radius
-        width, height = render_context.width, render_context.height
-        inv_view_proj = render_context.inv_view_proj
-        depth_planet = self.resources["depth_planet"]
-        depth_atm_entry = self.resources["depth_atm_entry"]
-        depth_atm_exit = self.resources["depth_atm_exit"]
-        geometry_mask = self.resources["geometry_mask"]
-        for y in range(height):
-            for x in range(width):
-                direction = self._reconstruct_direction(inv_view_proj, x, y, width, height)
-                hit_planet, t_near_planet, t_far_planet = self._ray_sphere(origin, direction, center, planet_radius)
-                hit_atm_outer, t_near_outer, t_far_outer = self._ray_sphere(origin, direction, center, atm_outer)
-                hit_atm_inner, t_near_inner, t_far_inner = self._ray_sphere(origin, direction, center, atm_inner)
-                geometry_mask[y, x] = self.SPACE
-                depth_planet[y, x] = np.inf
-                depth_atm_entry[y, x] = np.inf
-                depth_atm_exit[y, x] = np.inf
-                if hit_atm_outer and t_far_outer > 0.0:
-                    entry = max(t_near_outer, 0.0)
-                    exit_t = t_far_outer
-                    if hit_atm_inner and t_near_inner > 0.0:
-                        entry = max(entry, t_near_inner)
-                        exit_t = min(exit_t, t_far_inner)
-                    depth_atm_entry[y, x] = entry
-                    depth_atm_exit[y, x] = exit_t
-                    geometry_mask[y, x] = self.ATMOSPHERE
-                if hit_planet and t_far_planet > 0.0:
-                    depth_planet[y, x] = max(t_near_planet, 0.0)
-                    geometry_mask[y, x] |= self.TERRAIN
-        for name, value in self.resources.items():
-            render_context.set_texture(name, value)
+        for name in ["depth_planet", "depth_atm_entry", "depth_atm_exit", "geometry_mask"]:
+            render_context.set_texture(name, self.resources[name])
         return True
 
     def shutdown(self):
         super().shutdown()
         self.resources = {}
+        self.shader_sources = {}
         return True
