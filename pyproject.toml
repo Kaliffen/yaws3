@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yaws3"
+version = "0.1.0"
+description = "Headless-friendly planetary renderer scaffolding"
+authors = [{name = "YAWS3 Team"}]
+readme = "design.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pyrr",
+]
+
+[project.optional-dependencies]
+graphics = [
+    "PyOpenGL",
+    "glfw",
+    "imgui",
+]
+test = [
+    "pytest>=7.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-q"
