@@ -10,11 +10,18 @@ authors = [{name = "YAWS3 Team"}]
 readme = "design.md"
 requires-python = ">=3.10"
 dependencies = [
+    "numpy",
+    "pyrr",
+]
+
+[project.optional-dependencies]
+graphics = [
     "PyOpenGL",
     "glfw",
-    "pyrr",
-    "numpy",
     "imgui",
+]
+test = [
+    "pytest>=7.0",
 ]
 
 [tool.setuptools.packages.find]
