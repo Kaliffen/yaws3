@@ -12,6 +12,7 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "pyrr",
+    "glfw",
 ]
 
 [project.optional-dependencies]

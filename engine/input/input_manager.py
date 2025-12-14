@@ -1,6 +1,15 @@
-from engine.core.glfw_provider import get_glfw
+try:
+    import glfw
+except ImportError as exc:  # pragma: no cover - fallback for environments without GLFW
+    class _GLFWStub:
+        PRESS = 1
+        RELEASE = 0
+        REPEAT = 2
 
-glfw = get_glfw()
+        def __getattr__(self, _):
+            raise ImportError("glfw is required for input handling") from exc
+
+    glfw = _GLFWStub()
 
 
 class InputManager:
@@ -10,8 +19,8 @@ class InputManager:
         self.mouse_dy = 0.0
         self._last_mouse_pos = None
         self.initialized = False
-        self._press_actions = {glfw.PRESS, getattr(glfw, "REPEAT", 2), 1, 2}
-        self._release_actions = {glfw.RELEASE, 0}
+        self._press_actions = {glfw.PRESS, glfw.REPEAT}
+        self._release_actions = {glfw.RELEASE}
 
     def initialize(self):
         self.initialized = True
