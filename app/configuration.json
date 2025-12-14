@@ -1,1 +1,8 @@
-{}
+{
+  "window": {
+    "width": 800,
+    "height": 600,
+    "title": "Yaws3",
+    "vsync": true
+  }
+}
