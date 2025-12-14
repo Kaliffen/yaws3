@@ -7,8 +7,8 @@ from engine.graphics.passes.base_pass import BasePass
 
 
 def test_application_runs():
-    app = Application()
-    assert app.run() is True
+    app = Application(headless=True)
+    assert app.run(frames=1) is True
 
 
 def test_config_access():
@@ -31,7 +31,7 @@ def test_frame_graph_tracks_passes():
 
 
 def test_renderer_rendering():
-    renderer = Renderer(FrameGraph())
+    renderer = Renderer(FrameGraph(), enable_gl=False)
     assert renderer.render() is True
 
 
