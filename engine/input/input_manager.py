@@ -1,16 +1,4 @@
-try:
-    import glfw
-except ImportError as exc:  # pragma: no cover - fallback for environments without GLFW
-    class _GLFWStub:
-        PRESS = 1
-        RELEASE = 0
-        REPEAT = 2
-
-        def __getattr__(self, _):
-            raise ImportError("glfw is required for input handling") from exc
-
-    glfw = _GLFWStub()
-
+import glfw
 
 class InputManager:
     def __init__(self):

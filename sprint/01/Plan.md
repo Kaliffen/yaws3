@@ -83,7 +83,6 @@ engine/core/application.py
     5. Renderer
   * Runs a main loop computing `delta_time`
   * Shuts down subsystems via `LifecycleManager`
-* No OpenGL calls
 
 Tests:
 
@@ -152,8 +151,7 @@ engine/camera/fly_camera.py
 
 Constraints:
 
-* No OpenGL usage
-* Use `pyrr`
+* Use `pyrr` make sure to follow opengl conventions
 
 Tests:
 
@@ -321,7 +319,6 @@ Tests:
 
 * Verify all pass classes exist and are registered in correct order.
 * Verify renderer/framegraph call sequencing invokes initialize/execute/shutdown for each pass.
-* Tests must not call OpenGL.
 
 ---
 

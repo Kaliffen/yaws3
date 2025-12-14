@@ -1,22 +1,4 @@
-try:
-    import glfw
-except ImportError as exc:  # pragma: no cover - fallback for environments without GLFW
-    class _GLFWStub:
-        PRESS = 1
-        RELEASE = 0
-        REPEAT = 2
-        TRUE = 1
-        CONTEXT_VERSION_MAJOR = 0
-        CONTEXT_VERSION_MINOR = 1
-        OPENGL_PROFILE = 2
-        OPENGL_CORE_PROFILE = 3
-        OPENGL_FORWARD_COMPAT = 4
-
-        def __getattr__(self, _):
-            raise ImportError("glfw is required for windowing") from exc
-
-    glfw = _GLFWStub()
-
+import glfw
 from OpenGL.GL import glViewport
 
 
