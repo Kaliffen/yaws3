@@ -3,10 +3,11 @@ from OpenGL.GL import glViewport
 
 
 class GLFWWindow:
-    def __init__(self, width=1280, height=720, title="YAWS3"):
+    def __init__(self, width=1280, height=720, title="YAWS3", vsync=True):
         self.width = width
         self.height = height
         self.title = title
+        self.vsync = vsync
         self._window = None
         self.initialized = False
 
@@ -24,6 +25,7 @@ class GLFWWindow:
             glfw.terminate()
             raise RuntimeError("Failed to create GLFW window")
         glfw.make_context_current(self._window)
+        glfw.swap_interval(1 if self.vsync else 0)
         glfw.set_framebuffer_size_callback(self._window, self._framebuffer_size_callback)
         self.initialized = True
 
@@ -50,3 +52,6 @@ class GLFWWindow:
             self._window = None
         glfw.terminate()
         self.initialized = False
+
+    def get_handle(self):
+        return self._window

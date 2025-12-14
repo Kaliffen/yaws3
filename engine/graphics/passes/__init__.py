@@ -5,4 +5,5 @@ from engine.graphics.passes.surface_gbuffer_pass import SurfaceGBufferPass
 from engine.graphics.passes.deferred_surface_lighting_pass import DeferredSurfaceLightingPass
 from engine.graphics.passes.atmospheric_integration_pass import AtmosphericIntegrationPass
 from engine.graphics.passes.composite_tonemap_pass import CompositeTonemapPass
+from engine.graphics.passes.raymarch_sphere_pass import RaymarchSpherePass
 from engine.graphics.passes.base_pass import BasePass
