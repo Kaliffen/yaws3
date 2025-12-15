@@ -1,6 +1,4 @@
-﻿
-
-# Planetary Renderer Design Document
+﻿# Planetary Renderer Design Document (Revised, Full)
 
 ## 1. Purpose and Scope
 
@@ -22,6 +20,19 @@ The intent is to provide sufficient detail for direct implementation by an exper
 3. Separate geometry, lighting, and volumetric integration into specialized passes
 4. Preserve numerical stability at extreme scales
 5. Approximate global illumination using domain‑specific energy transfer, not general path tracing
+
+---
+
+## 2.1 Rendering Responsibility Boundaries (Clarification)
+
+This renderer is intentionally **bounded and layered**. Responsibilities are explicitly divided to ensure stability, predictable performance, and compatibility with a deferred shading pipeline.
+
+* **Analytical SDFs** define global structure, ray limits, and classification (planet/atmosphere shells, horizon tests, terminator tests).
+* **Rasterized meshes** provide all **primary surface visibility** (terrain and water) and stable derivatives.
+* **Ray marching** is reserved for **bounded volumetric integration** (atmosphere and clouds) between analytically computed entry/exit points.
+* **Deferred lighting** computes surface illumination and GI approximations after G‑buffer capture.
+
+No primary surface visibility is resolved via unbounded iterative ray marching.
 
 ---
 
@@ -161,15 +172,31 @@ These SDFs are evaluated analytically, never via iterative stepping.
 * Procedural volumetric density fields
 * Defined in altitude bands:
 
-    * Low (stratus)
-    * Mid (cumulus)
-    * High (cirrus)
+  * Low (stratus)
+  * Mid (cumulus)
+  * High (cirrus)
 
 Clouds are never treated as a continuous global volume.
 
 ---
 
-## 5. Frame Graph Overview
+## 5. Analytical-First Rule (Explicit)
+
+**Any ray segment whose entry and exit points can be computed analytically must never be raymarched.**
+
+This applies to:
+
+* Planet intersection and horizon tests
+* Atmosphere entry/exit bounds
+* Ocean intersection (if analytical)
+* Day/night terminator tests (sun–planet intersection)
+* Sun occlusion by the planet
+
+Ray marching is reserved for bounded volumetric integration (atmosphere and clouds) between analytical limits.
+
+---
+
+## 6. Frame Graph Overview
 
 ```
 Frame
@@ -179,7 +206,7 @@ Frame
  ├─ Pass 3: Surface G‑Buffer (Terrain + Water)
  ├─ Pass 4: Deferred Surface Lighting
  ├─ Pass 5: Atmospheric & Volumetric Integration
- ├─ Pass 6: Composite & Tone Mapping
+ ├─ Pass 6: Temporal Resolve, Composite & Tone Mapping
 ```
 
 Each pass is purpose‑built and minimizes redundant computation.
@@ -261,9 +288,9 @@ Stored in FP16 where possible to reduce bandwidth.
 * Single-scattering approximation
 * Henyey–Greenstein phase function with fixed anisotropy `g` per cloud type
 
-    * Low clouds: weak forward scattering
-    * Mid clouds: moderate forward scattering
-    * High clouds: strong forward scattering
+  * Low clouds: weak forward scattering
+  * Mid clouds: moderate forward scattering
+  * High clouds: strong forward scattering
 
 **Outputs:**
 
@@ -348,6 +375,28 @@ Atmospheric effects are excluded entirely from this pass.
 
 * `surface_radiance`
 
+### 10.1 Micro‑Scale Terrain Shading (Mandatory)
+
+At 1–10 meter scale, finite mesh resolution and heightfield displacement can produce perceptually flat surfaces unless high-frequency shading cues are introduced. The following are mandatory components of the surface lighting model (pure shading; no additional geometry):
+
+* **Procedural micro-normal synthesis**
+
+  * Slope-dependent noise
+  * Curvature-aware blending
+  * Independent of mesh resolution
+
+* **Analytical cavity / bent-normal approximation**
+
+  * Derived from height derivatives and/or procedural noise
+  * Applied to ambient terms to simulate micro-occlusion
+
+* **View-dependent horizon occlusion**
+
+  * Cheap cone test / horizon term in tangent space and/or screen space
+  * Stabilized temporally (see Pass 6)
+
+These terms exist to preserve ground-scale detail perception without requiring extreme tessellation.
+
 ---
 
 ## 11. Pass 5 – Atmospheric & Volumetric Integration
@@ -363,9 +412,9 @@ Atmospheric effects are excluded entirely from this pass.
 * Cloud buffers
 * Atmospheric LUTs:
 
-    * Transmittance
-    * Multiple scattering
-    * Phase functions
+  * Transmittance
+  * Multiple scattering
+  * Phase functions
 
 **Shadowing and Terminator Handling:**
 
@@ -394,14 +443,14 @@ Atmospheric effects are excluded entirely from this pass.
 * Cloud buffers
 * Atmospheric LUTs:
 
-    * Transmittance
-    * Multiple scattering
-    * Phase functions
+  * Transmittance
+  * Multiple scattering
+  * Phase functions
 
 **Process:**
 
 1. March view ray only between cached bounds
-2. Accumulate Rayleigh and Mie scattering
+2. Accumulate Rayleigh + Mie
 3. Apply multiple scattering LUT
 4. Modulate by cloud transmittance
 5. Composite surface contribution
@@ -411,17 +460,42 @@ Atmospheric effects are excluded entirely from this pass.
 
 ---
 
-## 12. Pass 6 – Composite & Tone Mapping
+## 12. Pass 6 – Temporal Resolve, Composite & Tone Mapping
 
 **Purpose:**
 
+* Temporal stabilization and accumulation (mandatory)
 * Final HDR composition
 * Exposure and tone mapping
 
-Optional:
+### 12.1 Temporal Accumulation (Mandatory)
 
-* Temporal reprojection
-* Color grading
+Given screen-space constraints (GI, AO, horizon terms) and bounded volumetric marching, temporal accumulation is required for stability during camera motion and at grazing angles.
+
+**History Buffers (recommended per-domain):**
+
+* Surface radiance
+* Indirect lighting (GI term)
+* AO / cavity term
+* Atmospheric scattering contribution
+* Cloud transmittance / cloud scattering
+
+**Reprojection:**
+
+* Reproject using previous view-projection and current depth
+* Use geometry mask to prevent cross-domain contamination (space/atmosphere/surface)
+
+**Rejection / Clamping:**
+
+* Reject history on large depth deltas
+* Reject history on large normal deltas
+* Reject history if geometry mask changes
+* Clamp radiance deltas to reduce flicker
+
+**Confidence-weighted blending:**
+
+* Blend history and current values based on stability metrics
+* Reduce history weight near silhouettes and disocclusions
 
 ---
 
@@ -448,6 +522,20 @@ Instead:
 * Multiple scattering handled via LUTs
 
 This preserves energy consistency without stochastic noise.
+
+### 13.1 Screen-Space GI Constraints (Explicit)
+
+The GI approximation is intentionally:
+
+* View-dependent
+* Single-bounce
+* Screen-space constrained
+
+**Containment rules (mandatory):**
+
+* Clamp indirect intensity
+* Fade GI near silhouettes and in high-uncertainty regions
+* Bias toward sky irradiance under uncertainty (avoid light leaks)
 
 ---
 
@@ -510,7 +598,7 @@ These are intentionally excluded for performance and stability reasons.
 
 ## 17. Conclusion
 
-This design treats planetary rendering as a **bounded, layered light transport problem**, not a generic ray‑marching problem. By combining analytical SDF intersections, multipass specialization, and precision‑aware math, the system achieves real‑time performance with physically plausible results across planetary scales.
+This design treats planetary rendering as a **bounded, layered light transport problem**, not a generic ray‑marching problem. By combining analytical SDF intersections, multipass specialization, mandatory temporal stabilization, micro-scale surface shading, and precision‑aware math, the system achieves real‑time performance with physically plausible results across planetary scales.
 
 This document defines a complete and implementable solution.
 
@@ -738,21 +826,21 @@ To manage runtime cost and integration complexity, each atmospheric LUT has a de
 
 * **Transmittance LUT**
 
-    * Update frequency: *Static*
-    * Generated offline or once at load time
-    * Assumes fixed atmospheric composition and scale heights
+  * Update frequency: *Static*
+  * Generated offline or once at load time
+  * Assumes fixed atmospheric composition and scale heights
 
 * **Multiple Scattering LUT**
 
-    * Update frequency: *Per sun-angle change (coarse)*
-    * Recomputed only when the sun zenith angle changes beyond a threshold
-    * Can be amortized over multiple frames using compute shaders
+  * Update frequency: *Per sun-angle change (coarse)*
+  * Recomputed only when the sun zenith angle changes beyond a threshold
+  * Can be amortized over multiple frames using compute shaders
 
 * **Sky Irradiance LUT**
 
-    * Update frequency: *Per frame or per sun-angle*
-    * Depends on sun direction and atmospheric state
-    * Typically low resolution and inexpensive to update
+  * Update frequency: *Per frame or per sun-angle*
+  * Depends on sun direction and atmospheric state
+  * Typically low resolution and inexpensive to update
 
 All LUTs are treated as read-only during the main render passes and are never updated mid-frame.
 
@@ -806,3 +894,10 @@ Used for surface lighting and horizon glow.
 ---
 
 # End of Technical Appendix
+
+
+![img.png](img.png)
+![img_1.png](img_1.png)
+![img_2.png](img_2.png)
+![img_3.png](img_3.png)
+![img_4.png](img_4.png)
